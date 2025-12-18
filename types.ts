@@ -9,6 +9,12 @@ export enum ViewState {
   SUPER_ADMIN
 }
 
+export interface Category {
+  id: string;
+  name: string;
+  store_id?: string;
+}
+
 export interface ProductVariant {
   id: string;
   name: string;
@@ -18,7 +24,7 @@ export interface ProductVariant {
 
 export interface PackItem {
     productId: string;
-    productName: string; // Nombre guardado para visualización rápida
+    productName: string; 
     quantity: number;
 }
 
@@ -140,7 +146,6 @@ export interface Lead {
     status?: 'NEW' | 'CONTACTED';
 }
 
-// Added name property to Store interface to fix TypeScript error in SuperAdminView (s.name)
 export interface Store {
     id: string;
     name?: string;

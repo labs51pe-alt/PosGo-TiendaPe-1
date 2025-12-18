@@ -1,8 +1,8 @@
 
 import React, { useState, useEffect } from 'react';
-import { Lead, Store, Product } from '../types';
+import { Lead, Store, Product, Category } from '../types';
 import { StorageService } from '../services/storageService';
-import { Users, Building2, Trash2, RefreshCw, ShieldAlert, Package, Plus, Edit, X, ImageIcon, Terminal, Copy, CheckCircle } from 'lucide-react';
+import { Users, Building2, Trash2, RefreshCw, ShieldAlert, Package, Plus, Edit, X, Terminal, Copy, CheckCircle, ListTodo, Tag, Layers, Sparkles, MessageCircle, Calendar, Hash } from 'lucide-react';
 
 interface SuperAdminProps {
     onEditProduct?: (product: Product) => void;
@@ -11,293 +11,276 @@ interface SuperAdminProps {
 }
 
 export const SuperAdminView: React.FC<SuperAdminProps> = ({ onEditProduct, onNewProduct, lastUpdated }) => {
-    const [activeTab, setActiveTab] = useState<'LEADS' | 'STORES' | 'DEMO_PRODUCTS'>('DEMO_PRODUCTS'); 
+    const [activeTab, setActiveTab] = useState<'CATEGORIES' | 'DEMO_PRODUCTS' | 'LEADS' | 'STORES'>('CATEGORIES'); 
     const [leads, setLeads] = useState<Lead[]>([]);
     const [stores, setStores] = useState<Store[]>([]);
     const [demoProducts, setDemoProducts] = useState<Product[]>([]);
+    const [categories, setCategories] = useState<Category[]>([]);
     const [loading, setLoading] = useState(true);
-    const [showSqlHelp, setShowSqlHelp] = useState(false);
-    const [copied, setCopied] = useState(false);
 
-    const fetchData = async (force = false) => {
+    const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
+    const [editingCategory, setEditingCategory] = useState<Category | null>(null);
+
+    const fetchData = async () => {
         setLoading(true);
         try {
-            const [l, s, demo] = await Promise.all([
+            const [l, s, demo, cats] = await Promise.all([
                 StorageService.getLeads(),
                 StorageService.getAllStores(),
-                StorageService.getDemoTemplate(force) 
+                StorageService.getDemoTemplate(true),
+                StorageService.getCategories()
             ]);
-            setLeads(l);
-            setStores(s);
-            setDemoProducts(demo);
-        } catch (error) {
-            console.error("Error fetching admin data:", error);
-        } finally {
-            setLoading(false);
+            setLeads(l || []); 
+            setStores(s || []); 
+            setDemoProducts(demo || []); 
+            setCategories(cats || []);
+        } catch (error) { 
+            console.error("Error fetching super admin data:", error); 
+        } finally { 
+            setLoading(false); 
         }
     };
 
-    useEffect(() => {
-        fetchData();
-    }, [lastUpdated]);
+    useEffect(() => { fetchData(); }, [lastUpdated]);
 
-    const handleDeleteDemoProduct = async (id: string) => {
-        if (window.confirm('¿Eliminar producto de la plantilla demo en la nube?')) {
-            await StorageService.deleteDemoProduct(id);
-            fetchData(true);
+    const handleSaveCategory = async () => {
+        if (!editingCategory?.name) return;
+        try {
+            const catToSave = editingCategory.id ? editingCategory : { id: crypto.randomUUID(), name: editingCategory.name };
+            await StorageService.saveCategory(catToSave);
+            setIsCategoryModalOpen(false);
+            setEditingCategory(null);
+            fetchData();
+        } catch (e: any) {
+            alert("Error al guardar categoría.");
         }
     };
 
-    const SQL_CODE = `-- SCRIPT DE RECONSTRUCCIÓN TOTAL DE INFRAESTRUCTURA PosGo!
--- Ejecuta este bloque COMPLETO en el editor SQL de Supabase.
-
--- 1. Asegurar Tabla 'stores'
-CREATE TABLE IF NOT EXISTS public.stores (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    name TEXT,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    settings JSONB DEFAULT '{}'::jsonb
-);
-
--- 2. Asegurar Tabla 'products' con todas las columnas snake_case
-CREATE TABLE IF NOT EXISTS public.products (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    name TEXT NOT NULL,
-    price NUMERIC NOT NULL DEFAULT 0,
-    stock NUMERIC NOT NULL DEFAULT 0,
-    category TEXT DEFAULT 'General',
-    barcode TEXT,
-    description TEXT,
-    cost NUMERIC DEFAULT 0,
-    has_variants BOOLEAN DEFAULT FALSE,
-    variants JSONB DEFAULT '[]'::jsonb,
-    is_pack BOOLEAN DEFAULT FALSE,
-    pack_items JSONB DEFAULT '[]'::jsonb,
-    store_id UUID REFERENCES public.stores(id) ON DELETE CASCADE,
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- 3. Reparación de columnas por si la tabla ya existía sin ellas
-ALTER TABLE public.products ADD COLUMN IF NOT EXISTS has_variants BOOLEAN DEFAULT FALSE;
-ALTER TABLE public.products ADD COLUMN IF NOT EXISTS is_pack BOOLEAN DEFAULT FALSE;
-ALTER TABLE public.products ADD COLUMN IF NOT EXISTS pack_items JSONB DEFAULT '[]'::jsonb;
-ALTER TABLE public.products ADD COLUMN IF NOT EXISTS description TEXT;
-ALTER TABLE public.products ADD COLUMN IF NOT EXISTS cost NUMERIC DEFAULT 0;
-ALTER TABLE public.products ADD COLUMN IF NOT EXISTS variants JSONB DEFAULT '[]'::jsonb;
-ALTER TABLE public.stores ADD COLUMN IF NOT EXISTS name TEXT;
-
--- 4. Asegurar Tabla 'product_images'
-CREATE TABLE IF NOT EXISTS public.product_images (
-    id BIGSERIAL PRIMARY KEY,
-    product_id UUID REFERENCES public.products(id) ON DELETE CASCADE,
-    image_data TEXT NOT NULL,
-    store_id UUID REFERENCES public.stores(id) ON DELETE CASCADE,
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- 5. Crear la Tienda Plantilla Global (ID de ceros)
-INSERT INTO public.stores (id, name, settings)
-VALUES ('00000000-0000-0000-0000-000000000000', 'Plantilla Global PosGo!', '{"name": "Plantilla Global"}')
-ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name;
-
--- 6. Habilitar Seguridad (RLS)
-ALTER TABLE public.stores ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.products ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.product_images ENABLE ROW LEVEL SECURITY;
-
--- 7. Políticas de Acceso Público para la Tienda Plantilla
-DROP POLICY IF EXISTS "Public Template Store Access" ON public.stores;
-CREATE POLICY "Public Template Store Access" ON public.stores FOR ALL USING (id = '00000000-0000-0000-0000-000000000000');
-
-DROP POLICY IF EXISTS "Public Template Products" ON public.products;
-CREATE POLICY "Public Template Products" ON public.products FOR ALL USING (store_id = '00000000-0000-0000-0000-000000000000');
-
-DROP POLICY IF EXISTS "Public Template Images" ON public.product_images;
-CREATE POLICY "Public Template Images" ON public.product_images FOR ALL USING (store_id = '00000000-0000-0000-0000-000000000000');
-
--- 8. COMANDO CRÍTICO: Recargar la caché de PostgREST
--- Esto fuerza a la API a reconocer las nuevas columnas inmediatamente.
-NOTIFY pgrst, 'reload schema';
-`;
-
-    const handleCopySql = () => {
-        navigator.clipboard.writeText(SQL_CODE);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
+    const handleDeleteCategory = async (id: string) => {
+        if (window.confirm('¿Eliminar categoría global?')) {
+            await StorageService.deleteCategory(id);
+            fetchData();
+        }
     };
 
     return (
         <div className="p-8 h-full bg-[#f8fafc] flex flex-col">
             <div className="flex justify-between items-center mb-8">
                 <div>
-                    <h1 className="text-3xl font-black text-slate-800 tracking-tight flex items-center gap-3">
-                        <ShieldAlert className="w-8 h-8 text-red-600"/> Super Admin
+                    <h1 className="text-4xl font-black text-slate-800 tracking-tight flex items-center gap-4">
+                        <ShieldAlert className="w-10 h-10 text-red-600 drop-shadow-xl"/> Sistema Super Admin
                     </h1>
-                    <p className="text-slate-500 font-medium text-sm">Gestiona la Infraestructura Global de PosGo!</p>
+                    <p className="text-slate-500 font-bold text-xs uppercase tracking-[0.2em]">Gestión Global de Infraestructura</p>
                 </div>
-                <button onClick={() => fetchData(true)} className="p-3 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors shadow-sm group">
-                    <RefreshCw className={`w-5 h-5 text-slate-500 group-hover:text-indigo-600 ${loading ? 'animate-spin' : ''}`}/>
+                <button onClick={fetchData} disabled={loading} className="p-4 bg-white border border-slate-200 rounded-2xl shadow-sm hover:bg-slate-50 transition-all hover:scale-110 active:scale-95 group disabled:opacity-50">
+                    <RefreshCw className={`w-6 h-6 text-slate-400 group-hover:text-indigo-600 ${loading ? 'animate-spin' : ''}`}/>
                 </button>
             </div>
 
-            <div className="flex flex-wrap gap-4 mb-6">
-                <button onClick={() => setActiveTab('DEMO_PRODUCTS')} className={`px-6 py-3 rounded-xl text-sm font-bold transition-all flex items-center gap-2 ${activeTab === 'DEMO_PRODUCTS' ? 'bg-indigo-600 text-white shadow-lg' : 'bg-white text-slate-500 hover:bg-slate-50'}`}><Package className="w-4 h-4"/> Plantilla Cloud</button>
-                <button onClick={() => setActiveTab('LEADS')} className={`px-6 py-3 rounded-xl text-sm font-bold transition-all flex items-center gap-2 ${activeTab === 'LEADS' ? 'bg-indigo-600 text-white shadow-lg' : 'bg-white text-slate-500 hover:bg-slate-50'}`}><Users className="w-4 h-4"/> Leads</button>
-                <button onClick={() => setActiveTab('STORES')} className={`px-6 py-3 rounded-xl text-sm font-bold transition-all flex items-center gap-2 ${activeTab === 'STORES' ? 'bg-indigo-600 text-white shadow-lg' : 'bg-white text-slate-500 hover:bg-slate-50'}`}><Building2 className="w-4 h-4"/> Tiendas</button>
+            <div className="flex flex-wrap gap-4 mb-8">
+                <button onClick={() => setActiveTab('CATEGORIES')} className={`px-8 py-4 rounded-2xl text-[11px] font-black uppercase tracking-widest transition-all flex items-center gap-3 ${activeTab === 'CATEGORIES' ? 'bg-indigo-600 text-white shadow-2xl shadow-indigo-200 scale-105' : 'bg-white text-slate-500 hover:bg-slate-50'}`}><ListTodo className="w-5 h-5"/> Categorías</button>
+                <button onClick={() => setActiveTab('DEMO_PRODUCTS')} className={`px-8 py-4 rounded-2xl text-[11px] font-black uppercase tracking-widest transition-all flex items-center gap-3 ${activeTab === 'DEMO_PRODUCTS' ? 'bg-indigo-600 text-white shadow-2xl shadow-indigo-200 scale-105' : 'bg-white text-slate-500 hover:bg-slate-50'}`}><Package className="w-5 h-5"/> Plantilla Cloud</button>
+                <button onClick={() => setActiveTab('LEADS')} className={`px-8 py-4 rounded-2xl text-[11px] font-black uppercase tracking-widest transition-all flex items-center gap-3 ${activeTab === 'LEADS' ? 'bg-indigo-600 text-white shadow-2xl shadow-indigo-200 scale-105' : 'bg-white text-slate-500 hover:bg-slate-50'}`}><Users className="w-5 h-5"/> Leads ({leads.length})</button>
+                <button onClick={() => setActiveTab('STORES')} className={`px-8 py-4 rounded-2xl text-[11px] font-black uppercase tracking-widest transition-all flex items-center gap-3 ${activeTab === 'STORES' ? 'bg-indigo-600 text-white shadow-2xl shadow-indigo-200 scale-105' : 'bg-white text-slate-500 hover:bg-slate-50'}`}><Building2 className="w-5 h-5"/> Tiendas ({stores.length})</button>
             </div>
 
-            <div className="flex-1 bg-white rounded-[2rem] border border-slate-100 shadow-sm overflow-hidden flex flex-col">
-                {activeTab === 'DEMO_PRODUCTS' && (
-                    <div className="p-5 border-b border-slate-100 bg-slate-50/50 flex flex-col sm:flex-row justify-between items-center gap-4">
-                        <div className="flex items-center gap-3">
-                             <div className="w-8 h-8 bg-amber-100 text-amber-600 rounded-lg flex items-center justify-center">
-                                <ImageIcon className="w-4 h-4"/>
-                             </div>
-                             <p className="text-xs font-bold text-slate-600 uppercase tracking-wider">Productos en Catálogo Global para Demos</p>
+            <div className="flex-1 bg-white rounded-[3rem] border border-slate-100 shadow-sm overflow-hidden flex flex-col relative">
+                <div className="p-6 border-b bg-slate-50/50 flex justify-between items-center px-10">
+                    {activeTab === 'CATEGORIES' && (
+                        <>
+                            <div className="flex items-center gap-4">
+                                 <div className="w-10 h-10 bg-indigo-100 text-indigo-600 rounded-2xl flex items-center justify-center shadow-inner"><Tag className="w-5 h-5"/></div>
+                                 <p className="text-xs font-black text-slate-800 uppercase tracking-widest">Catálogo de Categorías</p>
+                            </div>
+                            <button onClick={() => { setEditingCategory({ id: '', name: '' }); setIsCategoryModalOpen(true); }} className="bg-emerald-500 text-white px-8 py-3 rounded-2xl font-black text-[11px] flex items-center gap-2 hover:bg-emerald-600 transition-all shadow-xl shadow-emerald-100 active:scale-95">
+                                <Plus className="w-5 h-5 stroke-[3px]"/> NUEVA CATEGORÍA
+                            </button>
+                        </>
+                    )}
+                    {activeTab === 'DEMO_PRODUCTS' && (
+                        <>
+                            <div className="flex items-center gap-4">
+                                 <div className="w-10 h-10 bg-amber-100 text-amber-600 rounded-2xl flex items-center justify-center shadow-inner"><Package className="w-5 h-5"/></div>
+                                 <p className="text-xs font-black text-slate-800 uppercase tracking-widest">Productos de la Nube (Cloud)</p>
+                            </div>
+                            <button onClick={onNewProduct} className="bg-slate-900 text-white px-8 py-3 rounded-2xl font-black text-[11px] flex items-center gap-2 hover:bg-black transition-all shadow-xl shadow-slate-200 active:scale-95">
+                                <Plus className="w-5 h-5 stroke-[3px]"/> NUEVO PRODUCTO CLOUD
+                            </button>
+                        </>
+                    )}
+                    {activeTab === 'LEADS' && (
+                        <div className="flex items-center gap-4">
+                             <div className="w-10 h-10 bg-indigo-100 text-indigo-600 rounded-2xl flex items-center justify-center shadow-inner"><Users className="w-5 h-5"/></div>
+                             <p className="text-xs font-black text-slate-800 uppercase tracking-widest">Prospectos Interesados (Leads)</p>
                         </div>
-                        <div className="flex gap-2 w-full sm:w-auto">
-                             <button onClick={() => setShowSqlHelp(true)} className="flex-1 sm:flex-none bg-slate-800 text-white px-5 py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-2 hover:bg-black transition-all">
-                                <Terminal className="w-4 h-4 text-emerald-400"/> Fix Database SQL
-                             </button>
-                             <button onClick={onNewProduct} className="flex-1 sm:flex-none bg-emerald-500 text-white px-5 py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-2 hover:bg-emerald-600 shadow-lg shadow-emerald-100 transition-all">
-                                <Plus className="w-4 h-4"/> Nuevo Global
-                             </button>
+                    )}
+                    {activeTab === 'STORES' && (
+                        <div className="flex items-center gap-4">
+                             <div className="w-10 h-10 bg-rose-100 text-rose-600 rounded-2xl flex items-center justify-center shadow-inner"><Building2 className="w-5 h-5"/></div>
+                             <p className="text-xs font-black text-slate-800 uppercase tracking-widest">Ecosistema de Tiendas Activas</p>
                         </div>
-                    </div>
-                )}
+                    )}
+                </div>
 
                 <div className="flex-1 overflow-y-auto custom-scrollbar">
-                    <table className="w-full text-left">
-                        <thead className="bg-slate-50 text-[10px] font-black uppercase text-slate-400 sticky top-0 z-10">
-                            <tr>
-                                {activeTab === 'DEMO_PRODUCTS' && (
-                                    <>
-                                        <th className="p-6">Img</th>
-                                        <th className="p-6">Nombre</th>
-                                        <th className="p-6">Categoría</th>
-                                        <th className="p-6 text-right">Precio</th>
-                                        <th className="p-6 text-center">Tipo</th>
-                                        <th className="p-6 text-right">Acciones</th>
-                                    </>
-                                )}
-                                {activeTab === 'LEADS' && (
-                                    <>
-                                        <th className="p-6">Nombre</th>
-                                        <th className="p-6">Negocio</th>
-                                        <th className="p-6">Teléfono</th>
-                                        <th className="p-6">Fecha</th>
-                                        <th className="p-6">Status</th>
-                                    </>
-                                )}
-                                {activeTab === 'STORES' && (
-                                    <>
-                                        <th className="p-6">Store ID</th>
-                                        <th className="p-6">Nombre</th>
-                                        <th className="p-6">Creada</th>
-                                        <th className="p-6">Status</th>
-                                    </>
-                                )}
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-50">
-                            {activeTab === 'DEMO_PRODUCTS' && demoProducts.map((p) => (
-                                <tr key={p.id} className="hover:bg-slate-50/50 group transition-colors">
-                                    <td className="p-6">
-                                        <div className="w-12 h-12 rounded-xl border border-slate-200 bg-slate-100 overflow-hidden flex items-center justify-center">
-                                            {p.images && p.images.length > 0 ? (
-                                                <img src={p.images[0]} className="w-full h-full object-cover"/>
-                                            ) : (
-                                                <span className="text-[10px] font-black text-slate-300">N/A</span>
-                                            )}
-                                        </div>
-                                    </td>
-                                    <td className="p-6">
-                                        <p className="font-bold text-slate-800 text-sm">{p.name}</p>
-                                        <p className="text-[10px] font-mono text-slate-400">ID: {p.id.slice(0, 8)}</p>
-                                    </td>
-                                    <td className="p-6"><span className="bg-slate-100 text-slate-500 text-[10px] px-2.5 py-1 rounded-lg font-black uppercase tracking-wider border border-slate-200">{p.category}</span></td>
-                                    <td className="p-6 text-right font-black text-slate-900 text-sm">S/{p.price.toFixed(2)}</td>
-                                    <td className="p-6 text-center">
-                                        <div className="flex justify-center gap-1.5">
-                                            {p.hasVariants && <span className="bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded text-[9px] font-black border border-indigo-100">VARIANTE</span>}
-                                            {p.isPack && <span className="bg-amber-50 text-amber-600 px-2 py-0.5 rounded text-[9px] font-black border border-amber-100">PACK</span>}
-                                            {!p.hasVariants && !p.isPack && <span className="bg-slate-100 text-slate-400 px-2 py-0.5 rounded text-[9px] font-black border border-slate-200">BASE</span>}
-                                        </div>
-                                    </td>
-                                    <td className="p-6 text-right">
-                                        <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                            <button onClick={() => onEditProduct && onEditProduct(p)} className="p-2.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all" title="Editar Global"><Edit className="w-4 h-4"/></button>
-                                            <button onClick={() => handleDeleteDemoProduct(p.id)} className="p-2.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all" title="Eliminar Global"><Trash2 className="w-4 h-4"/></button>
-                                        </div>
-                                    </td>
-                                </tr>
+                    {activeTab === 'CATEGORIES' ? (
+                        <div className="p-10 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-8 animate-fade-in">
+                            {categories.map(cat => (
+                                <div key={cat.id} className="bg-white p-8 rounded-[2.8rem] border border-slate-100 flex justify-between items-center group hover:border-indigo-300 hover:shadow-2xl hover:-translate-y-1 transition-all">
+                                    <div className="flex items-center gap-5">
+                                        <div className="w-14 h-14 rounded-2xl bg-slate-50 flex items-center justify-center text-slate-400 group-hover:bg-indigo-50 group-hover:text-indigo-600 transition-all shadow-inner"><Tag className="w-6 h-6"/></div>
+                                        <span className="font-black text-slate-800 text-xl tracking-tight">{cat.name}</span>
+                                    </div>
+                                    <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-all">
+                                        <button onClick={() => { setEditingCategory(cat); setIsCategoryModalOpen(true); }} className="p-3 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-2xl transition-all shadow-sm"><Edit className="w-5 h-5"/></button>
+                                        <button onClick={() => handleDeleteCategory(cat.id)} className="p-3 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-2xl transition-all shadow-sm"><Trash2 className="w-5 h-5"/></button>
+                                    </div>
+                                </div>
                             ))}
-                            
-                            {activeTab === 'LEADS' && leads.map((l) => (
-                                <tr key={l.id} className="hover:bg-slate-50/50 transition-colors">
-                                    <td className="p-6 font-bold text-slate-800 text-sm">{l.name}</td>
-                                    <td className="p-6 font-medium text-slate-600 text-sm">{l.business_name}</td>
-                                    <td className="p-6 font-black text-emerald-600 font-mono text-sm">+{l.phone}</td>
-                                    <td className="p-6 text-xs text-slate-400">{new Date(l.created_at).toLocaleDateString()}</td>
-                                    <td className="p-6"><span className="px-3 py-1 rounded-lg bg-indigo-50 text-indigo-600 text-[10px] font-black border border-indigo-100">{l.status || 'NEW'}</span></td>
-                                </tr>
-                            ))}
-
-                            {activeTab === 'STORES' && stores.map((s) => (
-                                <tr key={s.id} className="hover:bg-slate-50/50 transition-colors">
-                                    <td className="p-6 font-mono text-[10px] text-slate-400">{s.id}</td>
-                                    <td className="p-6 font-bold text-slate-800 text-sm">{s.name || s.settings?.name || 'Store'}</td>
-                                    <td className="p-6 text-xs text-slate-400">{new Date(s.created_at).toLocaleDateString()}</td>
-                                    <td className="p-6"><span className="px-3 py-1 rounded-lg bg-emerald-50 text-emerald-600 text-[10px] font-black border border-emerald-100">ACTIVE</span></td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                    {(activeTab === 'DEMO_PRODUCTS' && demoProducts.length === 0 && !loading) && (
-                        <div className="p-20 text-center flex flex-col items-center">
-                            <Package className="w-12 h-12 text-slate-200 mb-4"/>
-                            <p className="text-slate-400 font-bold">No hay productos en la plantilla global.</p>
                         </div>
+                    ) : activeTab === 'DEMO_PRODUCTS' ? (
+                         <table className="w-full text-left">
+                            <thead className="bg-slate-50 sticky top-0 z-10 text-[10px] font-black uppercase text-slate-400 tracking-widest">
+                                <tr>
+                                    <th className="p-8">Img</th>
+                                    <th className="p-8">Producto</th>
+                                    <th className="p-8">Categoría</th>
+                                    <th className="p-8 text-right">Precio</th>
+                                    <th className="p-8 text-center">Config</th>
+                                    <th className="p-8 text-right">Acciones</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-50">
+                                {demoProducts.map((p) => (
+                                    <tr key={p.id} className="hover:bg-slate-50/50 group transition-colors">
+                                        <td className="p-8">
+                                            <div className="w-14 h-14 rounded-2xl bg-white border border-slate-100 overflow-hidden flex items-center justify-center font-black text-slate-300 shadow-sm">
+                                                {p.images && p.images[0] ? <img src={p.images[0]} className="w-full h-full object-cover" alt=""/> : p.name.charAt(0)}
+                                            </div>
+                                        </td>
+                                        <td className="p-8">
+                                            <p className="font-black text-slate-800 text-base">{p.name}</p>
+                                            <p className="text-[10px] font-mono font-bold text-slate-400">ID: {p.id.slice(-8).toUpperCase()}</p>
+                                        </td>
+                                        <td className="p-8"><span className="bg-slate-100 text-slate-500 text-[10px] px-3 py-1.5 rounded-xl font-black uppercase tracking-wider">{p.category}</span></td>
+                                        <td className="p-8 text-right font-black text-slate-900 text-base">S/{p.price.toFixed(2)}</td>
+                                        <td className="p-8 text-center">
+                                            <div className="flex justify-center gap-2">
+                                                {p.hasVariants && <span className="bg-indigo-50 text-indigo-600 px-2 py-1 rounded-lg text-[9px] font-black border border-indigo-100 shadow-sm"><Sparkles className="w-3 h-3 fill-current"/> VAR</span>}
+                                                {p.isPack && <span className="bg-amber-50 text-amber-600 px-2 py-1 rounded-lg text-[9px] font-black border border-amber-100 shadow-sm"><Layers className="w-3 h-3 fill-current"/> PACK</span>}
+                                            </div>
+                                        </td>
+                                        <td className="p-8 text-right">
+                                            <div className="flex justify-end gap-3 opacity-0 group-hover:opacity-100 transition-all">
+                                                <button onClick={() => onEditProduct && onEditProduct(p)} className="p-3 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-2xl transition-all bg-white shadow-sm border border-slate-100"><Edit className="w-5 h-5"/></button>
+                                                <button onClick={() => StorageService.deleteDemoProduct(p.id).then(fetchData)} className="p-3 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-2xl transition-all bg-white shadow-sm border border-slate-100"><Trash2 className="w-5 h-5"/></button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    ) : activeTab === 'LEADS' ? (
+                        <table className="w-full text-left">
+                            <thead className="bg-slate-50 sticky top-0 z-10 text-[10px] font-black uppercase text-slate-400 tracking-widest">
+                                <tr>
+                                    <th className="p-8">Nombre</th>
+                                    <th className="p-8">Negocio</th>
+                                    <th className="p-8">WhatsApp</th>
+                                    <th className="p-8">Fecha Registro</th>
+                                    <th className="p-8 text-right">Acciones</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-50">
+                                {leads.length === 0 ? (
+                                    <tr><td colSpan={5} className="p-20 text-center text-slate-400 font-bold uppercase tracking-widest">Sin leads registrados</td></tr>
+                                ) : leads.map((l) => (
+                                    <tr key={l.id} className="hover:bg-slate-50/50 group transition-colors">
+                                        <td className="p-8 font-black text-slate-800">{l.name}</td>
+                                        <td className="p-8 font-bold text-slate-600 uppercase text-xs">{l.business_name}</td>
+                                        <td className="p-8">
+                                            <a href={`https://wa.me/${l.phone}`} target="_blank" rel="noreferrer" className="flex items-center gap-2 text-emerald-600 font-black text-sm hover:underline">
+                                                <MessageCircle className="w-4 h-4 fill-emerald-100"/> {l.phone}
+                                            </a>
+                                        </td>
+                                        <td className="p-8 text-slate-400 font-bold text-[10px] flex items-center gap-2">
+                                            <Calendar className="w-3 h-3"/> {new Date(l.created_at).toLocaleString()}
+                                        </td>
+                                        <td className="p-8 text-right opacity-0 group-hover:opacity-100 transition-all">
+                                            <button className="p-3 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-2xl transition-all shadow-sm"><Trash2 className="w-5 h-5"/></button>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    ) : activeTab === 'STORES' ? (
+                        <table className="w-full text-left">
+                            <thead className="bg-slate-50 sticky top-0 z-10 text-[10px] font-black uppercase text-slate-400 tracking-widest">
+                                <tr>
+                                    <th className="p-8">ID Tienda</th>
+                                    <th className="p-8">Nombre Comercial</th>
+                                    <th className="p-8">Configuración</th>
+                                    <th className="p-8">Fecha Creación</th>
+                                    <th className="p-8 text-right">Owner ID</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-50">
+                                {stores.length === 0 ? (
+                                    <tr><td colSpan={5} className="p-20 text-center text-slate-400 font-bold uppercase tracking-widest">Sin tiendas activas</td></tr>
+                                ) : stores.map((s) => (
+                                    <tr key={s.id} className="hover:bg-slate-50/50 transition-colors">
+                                        <td className="p-8">
+                                            <span className="font-mono text-[10px] bg-slate-100 px-2 py-1 rounded-lg text-slate-600 font-black flex items-center gap-2 w-fit">
+                                                <Hash className="w-3 h-3"/> {s.id.slice(-8).toUpperCase()}
+                                            </span>
+                                        </td>
+                                        <td className="p-8 font-black text-slate-800 text-sm">
+                                            {s.settings?.name || s.name || 'Tienda Sin Nombre'}
+                                        </td>
+                                        <td className="p-8">
+                                            <div className="flex gap-2">
+                                                <span className="px-2 py-1 bg-indigo-50 text-indigo-600 rounded-md text-[9px] font-black border border-indigo-100">MONEDA: {s.settings?.currency}</span>
+                                                <span className="px-2 py-1 bg-emerald-50 text-emerald-600 rounded-md text-[9px] font-black border border-emerald-100">TAX: {((s.settings?.taxRate || 0) * 100).toFixed(0)}%</span>
+                                            </div>
+                                        </td>
+                                        <td className="p-8 text-slate-400 font-bold text-[10px]">
+                                            {new Date(s.created_at).toLocaleDateString()}
+                                        </td>
+                                        <td className="p-8 text-right">
+                                            <span className="font-mono text-[9px] text-slate-300">{s.owner_id || 'LOCAL_ONLY'}</span>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    ) : (
+                        <div className="p-20 text-center text-slate-400 font-bold uppercase tracking-widest">Error de pestaña</div>
                     )}
                 </div>
             </div>
 
-            {showSqlHelp && (
-                <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-[200] flex items-center justify-center p-4 animate-fade-in">
-                    <div className="bg-white rounded-[2.5rem] w-full max-w-2xl p-8 shadow-2xl animate-fade-in-up flex flex-col max-h-[90vh]">
-                        <div className="flex justify-between items-center mb-6">
-                             <div>
-                                <h3 className="font-black text-2xl text-slate-800 flex items-center gap-2">
-                                    <Terminal className="w-6 h-6 text-indigo-600"/> Master Fix SQL
-                                </h3>
-                                <p className="text-slate-400 text-sm font-medium mt-1">Repara la estructura cloud para permitir guardar productos.</p>
-                             </div>
-                             <button onClick={() => setShowSqlHelp(false)} className="p-2 hover:bg-slate-100 rounded-full text-slate-400 transition-colors"><X className="w-6 h-6"/></button>
+            {isCategoryModalOpen && (
+                <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-xl z-[250] flex items-center justify-center p-4">
+                    <div className="bg-white rounded-[3.5rem] w-full max-w-sm p-12 shadow-2xl animate-fade-in-up border border-white/20">
+                        <div className="flex justify-between items-center mb-10">
+                            <h3 className="text-3xl font-black text-slate-800 tracking-tighter">Categoría</h3>
+                            <button onClick={() => setIsCategoryModalOpen(false)} className="w-12 h-12 rounded-full bg-slate-50 text-slate-400 flex items-center justify-center hover:bg-rose-50 hover:text-rose-500 transition-all shadow-sm"><X className="w-6 h-6"/></button>
                         </div>
-                        
-                        <div className="relative group flex-1 overflow-hidden flex flex-col">
-                            <div className="absolute top-4 right-4 z-10">
-                                <button 
-                                    onClick={handleCopySql} 
-                                    className={`flex items-center gap-2 px-4 py-2 rounded-xl font-bold text-xs transition-all shadow-lg ${copied ? 'bg-emerald-500 text-white' : 'bg-white/90 text-slate-700 hover:bg-white'}`}
-                                >
-                                    {copied ? <><CheckCircle className="w-4 h-4"/> Copiado!</> : <><Copy className="w-4 h-4"/> Copiar Código</>}
-                                </button>
-                            </div>
-                            <pre className="flex-1 bg-slate-900 text-emerald-400 p-6 rounded-3xl text-[11px] font-mono overflow-auto custom-scrollbar leading-relaxed border border-white/10 shadow-inner">
-                                {SQL_CODE}
-                            </pre>
-                        </div>
-
-                        <div className="mt-8 bg-indigo-50 border border-indigo-100 p-4 rounded-2xl flex items-start gap-4">
-                            <ShieldAlert className="w-6 h-6 text-indigo-600 shrink-0"/>
+                        <div className="space-y-8 mb-12">
                             <div>
-                                <p className="text-indigo-900 font-black text-sm uppercase tracking-wider mb-1">Pasos de Solución</p>
-                                <p className="text-indigo-700 text-xs leading-relaxed font-medium">1. Copia el código arriba. 2. Ve a Supabase > SQL Editor. 3. Pega y ejecuta (RUN). 4. Intenta guardar el producto de nuevo.</p>
+                                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 ml-1">Nombre</label>
+                                <input 
+                                    className="w-full p-5 bg-slate-50 border-2 border-slate-100 rounded-[1.5rem] font-black text-xl text-slate-800 outline-none focus:border-indigo-500 focus:bg-white transition-all shadow-inner"
+                                    value={editingCategory?.name || ''}
+                                    onChange={e => setEditingCategory({ ...editingCategory!, name: e.target.value })}
+                                    placeholder="Ej. Lácteos"
+                                    autoFocus
+                                />
                             </div>
                         </div>
-
-                        <button onClick={() => setShowSqlHelp(false)} className="w-full mt-6 py-4 bg-slate-900 text-white rounded-2xl font-black text-sm hover:bg-black transition-all active:scale-95 shadow-xl shadow-slate-200">ENTENDIDO</button>
+                        <button onClick={handleSaveCategory} className="w-full py-6 bg-slate-900 text-white rounded-[2rem] font-black shadow-2xl hover:bg-black hover:scale-[1.02] active:scale-95 transition-all flex items-center justify-center gap-3 text-base">
+                            <CheckCircle className="w-6 h-6 text-emerald-400"/> GUARDAR MAESTRO
+                        </button>
                     </div>
                 </div>
             )}
