@@ -126,17 +126,30 @@ const App: React.FC = () => {
           if (action === 'OPEN') {
               const newId = crypto.randomUUID();
               const newShift: CashShift = { id: newId, startTime: new Date().toISOString(), startAmount: amount, status: 'OPEN', totalSalesCash: 0, totalSalesDigital: 0 };
-              await StorageService.saveShift(newShift); 
+              
+              // Actualización inmediata del estado para evitar "Caja Cerrada" visual
+              setShifts(prev => [newShift, ...prev]);
               StorageService.setActiveShiftId(newId);
               setActiveShiftId(newId);
+              
+              await StorageService.saveShift(newShift); 
+              const move: CashMovement = { id: crypto.randomUUID(), shiftId: newId, type: 'OPEN', amount, description: 'Apertura de caja', timestamp: new Date().toISOString() };
+              await StorageService.saveMovement(move);
           } else if (action === 'CLOSE' && activeShift) {
               const closedShift = { ...activeShift, endTime: new Date().toISOString(), endAmount: amount, status: 'CLOSED' as const };
-              await StorageService.saveShift(closedShift); 
+              
+              // Actualización inmediata del estado
+              setShifts(prev => prev.map(s => s.id === activeShift.id ? closedShift : s));
               StorageService.setActiveShiftId(null); 
               setActiveShiftId(null);
+              
+              await StorageService.saveShift(closedShift); 
+              const move: CashMovement = { id: crypto.randomUUID(), shiftId: activeShift.id, type: 'CLOSE', amount, description: 'Cierre de caja', timestamp: new Date().toISOString() };
+              await StorageService.saveMovement(move);
           } else if (activeShift) {
               const move: CashMovement = { id: crypto.randomUUID(), shiftId: activeShift.id, type: action, amount, description, timestamp: new Date().toISOString() }; 
               await StorageService.saveMovement(move); 
+              setMovements(prev => [move, ...prev]);
           }
           await refreshAllData();
       } catch (e) { alert("Error en caja: " + e); }
@@ -167,7 +180,7 @@ const App: React.FC = () => {
 
           const pToSave: Product = { 
               ...currentProduct, 
-              id: currentProduct.id || crypto.randomUUID(), // Asegura ID nuevo si no tiene
+              id: currentProduct.id || crypto.randomUUID(),
               category: currentProduct.category || (categories[0]?.name || 'General'),
               stock: finalStock,
               isPack: currentProduct.isPack || false,
