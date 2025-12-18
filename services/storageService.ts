@@ -46,6 +46,7 @@ const getStoreId = async (): Promise<string> => {
     return DEMO_TEMPLATE_ID;
 };
 
+// Mapeo de DB (snake_case) a TS (camelCase)
 const mapProduct = (p: any, imagesData: any[] = []): Product => {
     const prodImages = imagesData 
         ? imagesData.filter((img: any) => img.product_id === p.id).map((img: any) => img.image_data)
@@ -57,10 +58,10 @@ const mapProduct = (p: any, imagesData: any[] = []): Product => {
         category: p.category || 'General',
         stock: Number(p.stock) || 0,
         barcode: p.barcode || '',
-        hasVariants: p.hasVariants === true || (Array.isArray(p.variants) && p.variants.length > 0),
+        hasVariants: p.has_variants ?? p.hasVariants ?? (Array.isArray(p.variants) && p.variants.length > 0),
         variants: Array.isArray(p.variants) ? p.variants : [],
-        isPack: p.isPack === true || (Array.isArray(p.packItems) && p.packItems.length > 0),
-        packItems: Array.isArray(p.packItems) ? p.packItems : [],
+        isPack: p.is_pack ?? p.isPack ?? (Array.isArray(p.pack_items || p.packItems) && (p.pack_items || p.packItems).length > 0),
+        packItems: Array.isArray(p.pack_items || p.packItems) ? (p.pack_items || p.packItems) : [],
         images: prodImages,
         description: p.description || '',
         cost: Number(p.cost) || 0
@@ -150,7 +151,7 @@ export const StorageService = {
               throw new Error("Error en Tienda Global: " + (storeError.message || JSON.stringify(storeError)));
           }
 
-          // Limpieza de datos antes de enviar
+          // Payload mapeado a snake_case (Estándar de BD)
           const payload = {
               id: product.id,
               name: product.name,
@@ -160,17 +161,21 @@ export const StorageService = {
               barcode: product.barcode || '',
               description: product.description || '',
               cost: Number(product.cost) || 0,
-              hasVariants: !!product.hasVariants,
+              has_variants: !!product.hasVariants,
               variants: Array.isArray(product.variants) ? product.variants : [], 
-              isPack: !!product.isPack,
-              packItems: Array.isArray(product.packItems) ? product.packItems : [],
+              is_pack: !!product.isPack,
+              pack_items: Array.isArray(product.packItems) ? product.packItems : [],
               store_id: storeId
           };
 
           const { error: prodError } = await supabase.from('products').upsert(payload);
           
           if (prodError) {
-              throw new Error("Error en Producto Global: " + (prodError.message || JSON.stringify(prodError)));
+              const msg = prodError.message || JSON.stringify(prodError);
+              if (msg.includes('column') || msg.includes('schema') || msg.includes('cache')) {
+                  throw new Error(`Columna faltante en base de datos. Por favor, usa el botón "Fix Database SQL" en el panel de Super Admin.\n\nDetalle: ${msg}`);
+              }
+              throw new Error("Error en Producto Global: " + msg);
           }
 
           if (product.images) {
@@ -209,7 +214,7 @@ export const StorageService = {
   
   saveProductWithImages: async (product: Product) => {
       const storeId = await getStoreId();
-      const { error: prodError } = await supabase.from('products').upsert({ 
+      const payload = { 
           id: product.id, 
           name: product.name, 
           price: Number(product.price) || 0, 
@@ -218,13 +223,14 @@ export const StorageService = {
           barcode: product.barcode || '', 
           description: product.description || '',
           cost: Number(product.cost) || 0,
-          hasVariants: !!product.hasVariants,
+          has_variants: !!product.hasVariants,
           variants: Array.isArray(product.variants) ? product.variants : [], 
-          isPack: !!product.isPack,
-          packItems: Array.isArray(product.packItems) ? product.packItems : [],
+          is_pack: !!product.isPack,
+          pack_items: Array.isArray(product.packItems) ? product.packItems : [],
           store_id: storeId 
-      });
-      
+      };
+
+      const { error: prodError } = await supabase.from('products').upsert(payload);
       if (prodError) throw prodError;
 
       if (product.images) {
@@ -252,10 +258,10 @@ export const StorageService = {
               barcode: p.barcode || '', 
               description: p.description || '',
               cost: Number(p.cost) || 0,
-              hasVariants: !!p.hasVariants,
+              has_variants: !!p.hasVariants,
               variants: Array.isArray(p.variants) ? p.variants : [], 
-              isPack: !!p.isPack,
-              packItems: Array.isArray(p.packItems) ? p.packItems : [],
+              is_pack: !!p.isPack,
+              pack_items: Array.isArray(p.packItems) ? p.packItems : [],
               store_id: storeId 
           });
       }

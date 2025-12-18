@@ -48,35 +48,76 @@ export const SuperAdminView: React.FC<SuperAdminProps> = ({ onEditProduct, onNew
         }
     };
 
-    const SQL_CODE = `-- 1. Asegurar columnas necesarias en la tabla 'products'
-ALTER TABLE "public"."products" ADD COLUMN IF NOT EXISTS "hasVariants" BOOLEAN DEFAULT FALSE;
-ALTER TABLE "public"."products" ADD COLUMN IF NOT EXISTS "variants" JSONB DEFAULT '[]'::jsonb;
-ALTER TABLE "public"."products" ADD COLUMN IF NOT EXISTS "isPack" BOOLEAN DEFAULT FALSE;
-ALTER TABLE "public"."products" ADD COLUMN IF NOT EXISTS "packItems" JSONB DEFAULT '[]'::jsonb;
-ALTER TABLE "public"."products" ADD COLUMN IF NOT EXISTS "description" TEXT;
-ALTER TABLE "public"."products" ADD COLUMN IF NOT EXISTS "cost" NUMERIC DEFAULT 0;
+    const SQL_CODE = `-- SCRIPT DE RECONSTRUCCIÓN TOTAL DE INFRAESTRUCTURA PosGo!
+-- Ejecuta este bloque COMPLETO en el editor SQL de Supabase.
 
--- 2. Asegurar que la tabla 'stores' tenga la columna 'name'
-ALTER TABLE "public"."stores" ADD COLUMN IF NOT EXISTS "name" TEXT;
+-- 1. Asegurar Tabla 'stores'
+CREATE TABLE IF NOT EXISTS public.stores (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    settings JSONB DEFAULT '{}'::jsonb
+);
 
--- 3. Crear la Tienda Plantilla (ID Global) con Nombre
-INSERT INTO "public"."stores" ("id", "name", "created_at", "settings")
-VALUES ('00000000-0000-0000-0000-000000000000', 'Plantilla Global PosGo!', NOW(), '{"name": "Plantilla Global"}')
-ON CONFLICT ("id") DO UPDATE SET "name" = EXCLUDED."name";
+-- 2. Asegurar Tabla 'products' con todas las columnas snake_case
+CREATE TABLE IF NOT EXISTS public.products (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name TEXT NOT NULL,
+    price NUMERIC NOT NULL DEFAULT 0,
+    stock NUMERIC NOT NULL DEFAULT 0,
+    category TEXT DEFAULT 'General',
+    barcode TEXT,
+    description TEXT,
+    cost NUMERIC DEFAULT 0,
+    has_variants BOOLEAN DEFAULT FALSE,
+    variants JSONB DEFAULT '[]'::jsonb,
+    is_pack BOOLEAN DEFAULT FALSE,
+    pack_items JSONB DEFAULT '[]'::jsonb,
+    store_id UUID REFERENCES public.stores(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
 
--- 4. Habilitar RLS y Políticas (Acceso Público para Demo)
-ALTER TABLE "public"."stores" ENABLE ROW LEVEL SECURITY;
-ALTER TABLE "public"."products" ENABLE ROW LEVEL SECURITY;
-ALTER TABLE "public"."product_images" ENABLE ROW LEVEL SECURITY;
+-- 3. Reparación de columnas por si la tabla ya existía sin ellas
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS has_variants BOOLEAN DEFAULT FALSE;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS is_pack BOOLEAN DEFAULT FALSE;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS pack_items JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS description TEXT;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS cost NUMERIC DEFAULT 0;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS variants JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE public.stores ADD COLUMN IF NOT EXISTS name TEXT;
 
-DROP POLICY IF EXISTS "Public Template Store Access" ON "public"."stores";
-CREATE POLICY "Public Template Store Access" ON "public"."stores" FOR ALL USING (id = '00000000-0000-0000-0000-000000000000');
+-- 4. Asegurar Tabla 'product_images'
+CREATE TABLE IF NOT EXISTS public.product_images (
+    id BIGSERIAL PRIMARY KEY,
+    product_id UUID REFERENCES public.products(id) ON DELETE CASCADE,
+    image_data TEXT NOT NULL,
+    store_id UUID REFERENCES public.stores(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
 
-DROP POLICY IF EXISTS "Public Template Products" ON "public"."products";
-CREATE POLICY "Public Template Products" ON "public"."products" FOR ALL USING (store_id = '00000000-0000-0000-0000-000000000000');
+-- 5. Crear la Tienda Plantilla Global (ID de ceros)
+INSERT INTO public.stores (id, name, settings)
+VALUES ('00000000-0000-0000-0000-000000000000', 'Plantilla Global PosGo!', '{"name": "Plantilla Global"}')
+ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name;
 
-DROP POLICY IF EXISTS "Public Template Images" ON "public"."product_images";
-CREATE POLICY "Public Template Images" ON "public"."product_images" FOR ALL USING (store_id = '00000000-0000-0000-0000-000000000000');
+-- 6. Habilitar Seguridad (RLS)
+ALTER TABLE public.stores ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.products ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.product_images ENABLE ROW LEVEL SECURITY;
+
+-- 7. Políticas de Acceso Público para la Tienda Plantilla
+DROP POLICY IF EXISTS "Public Template Store Access" ON public.stores;
+CREATE POLICY "Public Template Store Access" ON public.stores FOR ALL USING (id = '00000000-0000-0000-0000-000000000000');
+
+DROP POLICY IF EXISTS "Public Template Products" ON public.products;
+CREATE POLICY "Public Template Products" ON public.products FOR ALL USING (store_id = '00000000-0000-0000-0000-000000000000');
+
+DROP POLICY IF EXISTS "Public Template Images" ON public.product_images;
+CREATE POLICY "Public Template Images" ON public.product_images FOR ALL USING (store_id = '00000000-0000-0000-0000-000000000000');
+
+-- 8. COMANDO CRÍTICO: Recargar la caché de PostgREST
+-- Esto fuerza a la API a reconocer las nuevas columnas inmediatamente.
+NOTIFY pgrst, 'reload schema';
 `;
 
     const handleCopySql = () => {
@@ -227,9 +268,9 @@ CREATE POLICY "Public Template Images" ON "public"."product_images" FOR ALL USIN
                         <div className="flex justify-between items-center mb-6">
                              <div>
                                 <h3 className="font-black text-2xl text-slate-800 flex items-center gap-2">
-                                    <Terminal className="w-6 h-6 text-indigo-600"/> Fix Schema Cache
+                                    <Terminal className="w-6 h-6 text-indigo-600"/> Master Fix SQL
                                 </h3>
-                                <p className="text-slate-400 text-sm font-medium mt-1">Ejecuta esto en el SQL Editor de Supabase para actualizar la base de datos.</p>
+                                <p className="text-slate-400 text-sm font-medium mt-1">Repara la estructura cloud para permitir guardar productos.</p>
                              </div>
                              <button onClick={() => setShowSqlHelp(false)} className="p-2 hover:bg-slate-100 rounded-full text-slate-400 transition-colors"><X className="w-6 h-6"/></button>
                         </div>
@@ -248,11 +289,11 @@ CREATE POLICY "Public Template Images" ON "public"."product_images" FOR ALL USIN
                             </pre>
                         </div>
 
-                        <div className="mt-8 bg-amber-50 border border-amber-100 p-4 rounded-2xl flex items-start gap-4">
-                            <ShieldAlert className="w-6 h-6 text-amber-600 shrink-0"/>
+                        <div className="mt-8 bg-indigo-50 border border-indigo-100 p-4 rounded-2xl flex items-start gap-4">
+                            <ShieldAlert className="w-6 h-6 text-indigo-600 shrink-0"/>
                             <div>
-                                <p className="text-amber-900 font-black text-sm uppercase tracking-wider mb-1">Importante</p>
-                                <p className="text-amber-700 text-xs leading-relaxed font-medium">Este script asegura que la tabla 'products' tenga las columnas 'hasVariants', 'variants', 'isPack' y 'packItems'. Sin ellas, el guardado en la nube fallará.</p>
+                                <p className="text-indigo-900 font-black text-sm uppercase tracking-wider mb-1">Pasos de Solución</p>
+                                <p className="text-indigo-700 text-xs leading-relaxed font-medium">1. Copia el código arriba. 2. Ve a Supabase > SQL Editor. 3. Pega y ejecuta (RUN). 4. Intenta guardar el producto de nuevo.</p>
                             </div>
                         </div>
 
